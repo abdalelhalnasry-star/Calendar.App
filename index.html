@@ -459,7 +459,8 @@
       </label>
 
       <label>الصف:
-        <select id="gradeSelect" onchange="updateMeta()">
+        <!-- تم التعديل هنا لاستدعاء دالة التبديل بين الصفوف -->
+        <select id="gradeSelect" onchange="switchGrade(this.value)">
           <option value="الأول الأساسي">الأول الأساسي</option>
           <option value="الثاني الأساسي">الثاني الأساسي</option>
           <option value="الثالث الأساسي">الثالث الأساسي</option>
@@ -1051,6 +1052,31 @@
     saveStateToLocal();
   }
 
+  // تم إضافة هذه الدالة للتبديل بين الصفوف
+  function switchGrade(newGrade) {
+      // حفظ بيانات الصف الحالي أولاً
+      saveStateToLocal();
+
+      // تغيير الصف
+      state.grade = newGrade;
+
+      // تحميل بيانات الصف الجديد من الذاكرة
+      const savedGradeData = localStorage.getItem('grade_records_' + newGrade);
+      if (savedGradeData) {
+          state.records = JSON.parse(savedGradeData);
+      } else {
+          state.records = {
+              boys: Array.from({ length: MAX_SHEET_ROWS }, () => createEmptyStudent()),
+              girls: Array.from({ length: MAX_SHEET_ROWS }, () => createEmptyStudent())
+          };
+      }
+
+      // تحديث الواجهة
+      updateMeta();
+      renderTable();
+      setStatus('تم التبديل إلى ' + newGrade + ' وتحميل بياناته بنجاح.');
+  }
+
   function addCustomGrade() {
     const customName = prompt('أدخل اسم الصف الجديد (مثال: الرابع الأساسي):');
     if (!customName || !customName.trim()) return;
@@ -1064,7 +1090,7 @@
       select.appendChild(opt);
     }
     select.value = clean;
-    updateMeta();
+    switchGrade(clean); // استخدام الدالة الجديدة هنا أيضاً
   }
 
   function applySampleMonths() {
@@ -1986,15 +2012,17 @@
 
       sortStudentsAlphabetically('boys');
       sortStudentsAlphabetically('girls');
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      
+      saveStateToLocal(); // حفظ في الذاكرة المحلية
+
       if (showMessage) {
         updateMeta();
         renderTable();
-        setStatus('تم حفظ جميع البيانات وتحديث العام الدراسي بنجاح.');
+        setStatus('تم حفظ جميع البيانات لـ (' + state.grade + ') بنجاح.');
       }
     } catch (e) {
       if (showMessage) {
-        setStatus('تنبيه: تعذر حفظ البيانات في ذاكرة المتصفح.');
+        setStatus('تنبيه: تعذر حفظ البيانات في ذاكرة التطبيق.');
       }
     }
   }
@@ -2002,12 +2030,27 @@
   function loadDataFromBrowser() {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
-      if (!saved) return;
-      const parsed = JSON.parse(saved);
-      Object.assign(state, parsed);
-      if (!state.records) state.records = { boys: [], girls: [] };
-      if (!Array.isArray(state.records.boys)) state.records.boys = [];
-      if (!Array.isArray(state.records.girls)) state.records.girls = [];
+      let parsed = {};
+      if (saved) {
+        parsed = JSON.parse(saved);
+        Object.assign(state, parsed);
+      }
+
+      // ميزة الإنقاذ: نقل البيانات القديمة إذا وجدت لضمان عدم ضياعها
+      if (parsed.records && !localStorage.getItem('grade_records_' + state.grade)) {
+          localStorage.setItem('grade_records_' + state.grade, JSON.stringify(parsed.records));
+      }
+
+      // تحميل بيانات الصف الحالي
+      const savedGradeRecords = localStorage.getItem('grade_records_' + state.grade);
+      if (savedGradeRecords) {
+          state.records = JSON.parse(savedGradeRecords);
+      } else {
+          state.records = {
+              boys: Array.from({ length: MAX_SHEET_ROWS }, () => createEmptyStudent()),
+              girls: Array.from({ length: MAX_SHEET_ROWS }, () => createEmptyStudent())
+          };
+      }
 
       if (String(state.year || '').trim() === '20') {
         state.year = '';
@@ -2039,11 +2082,23 @@
 
       pinMonthsToHeader();
       updateMeta();
-    } catch (e) {}
+    } catch (e) {
+      console.error("خطأ في تحميل البيانات", e);
+    }
   }
 
   function saveStateToLocal() {
-    saveDataToBrowser(false);
+    try {
+      // حفظ بيانات الصف الحالي (الأسماء والدرجات) تحت اسم هذا الصف
+      localStorage.setItem('grade_records_' + state.grade, JSON.stringify(state.records));
+
+      // حفظ الإعدادات العامة (المادة، الفصل، إلخ) تحت المفتاح الرئيسي
+      const metaState = { ...state };
+      delete metaState.records; // لا نحفظ الأسماء هنا لتجنب التداخل بين الصفوف
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(metaState));
+    } catch (e) {
+      console.error("خطأ في الحفظ", e);
+    }
   }
 
   loadDataFromBrowser();
@@ -2056,7 +2111,6 @@
       navigator.serviceWorker.register('./sw.js');
     });
   }
-</script>
 </script>
 </body>
 </html>
